@@ -1,0 +1,122 @@
+//Scientific Matrix Weather Display for ESP8266 Arduino
+//Displays MQTT scrolling text data on MAX7219. Can be adapted to any arduino device.
+#include <MD_Parola.h>
+#include <MD_MAX72xx.h>
+#include <SPI.h>
+#include "EspMQTTClient.h"
+
+#define HARDWARE_TYPE MD_MAX72XX::FC16_HW
+#define MAX_DEVICES 4
+#define DATA_PIN  13 //D7
+#define CS_PIN    15 //D8
+#define CLK_PIN   14 //D5
+MD_Parola P = MD_Parola(HARDWARE_TYPE, CS_PIN, MAX_DEVICES);
+
+uint8_t scrollSpeed = 52;    // default frame delay value
+uint16_t scrollPause = 0; // in milliseconds184
+
+// Global message buffers shared by Serial and Scrolling functions
+#define  BUF_SIZE  100
+char curMessage[BUF_SIZE] = { "" };
+char newMessage[BUF_SIZE] = { "" };
+bool newMessageAvailable = false;
+
+char tempMessage[BUF_SIZE] = { "" };
+char humidityMessage[BUF_SIZE] = { "" };
+char dateMessage[BUF_SIZE] = { "" };
+char noiseMessage[BUF_SIZE] = { "" };
+char pm25Message[BUF_SIZE] = { "" };
+char moonMessage[BUF_SIZE] = { "" };
+
+
+EspMQTTClient client(
+  "Living_Room",
+  "goodlife",
+  "broker.mqttdashboard.com",  // MQTT Broker server ip
+  //"MQTTUsername",   // Can be omitted if not needed
+  //"MQTTPassword",   // Can be omitted if not needed
+  "TestClient123a2",     // Client name that uniquely identify your device
+  1883              // The MQTT port, default to 1883. this line can be omitted
+);
+
+void setup()
+{
+  curMessage[0] = newMessage[0] = '\0';
+  Serial.begin(115200);
+  P.begin();
+  P.displayText("Waiting for MQTT data...", PA_LEFT, scrollSpeed, scrollPause, PA_SCROLL_LEFT, PA_SCROLL_LEFT); //This is needed
+}
+
+void onTempMessageReceived(const String & payload) {
+  strcpy(tempMessage, payload.c_str());
+  sprintf(tempMessage, "%s\xB0""C - ", payload.c_str());
+  strcat(newMessage, tempMessage); //Add the sensor value to the message that will be displayed
+  newMessageAvailable = true;
+}
+
+void onHumidityMessageReceived(const String & payload) {
+  //Serial.print("message received from humidity: " + payload);
+  strcpy(humidityMessage, payload.c_str());
+  sprintf(humidityMessage, "%s%%RH -- ", payload.c_str());
+  strcat(newMessage, humidityMessage);
+}
+
+void onDateMessageReceived(const String & payload) {
+  //Serial.print("message received from date: " + payload);
+  strcpy(dateMessage, payload.c_str()); //copy payload to curMessage
+  sprintf(dateMessage, "%s -- ", payload.c_str());
+  strcat(newMessage, dateMessage);
+}
+
+void onPM25MessageReceived(const String & payload) {
+  //Serial.print("message received from date: " + payload);
+  strcpy(pm25Message, payload.c_str()); //copy payload to curMessage
+  sprintf(pm25Message, "%s AQi -- ", payload.c_str());
+  strcat(newMessage, pm25Message);
+  //https://blissair.com/what-is-pm-2-5.htm
+}
+
+void onNoiseMessageReceived(const String & payload) {
+  //Serial.print("message received from date: " + payload);
+  strcpy(noiseMessage, payload.c_str()); //copy payload to curMessage
+  sprintf(noiseMessage, "%s dB -- ", payload.c_str());
+  strcat(newMessage, noiseMessage);
+}
+
+void onMoonMessageReceived(const String & payload) {
+  //Serial.print("message received from date: " + payload);
+  strcpy(moonMessage, payload.c_str()); //copy payload to curMessage
+  sprintf(moonMessage, "%s -- ", payload.c_str());
+  strcat(newMessage, moonMessage);
+}
+
+void onConnectionEstablished() //Called by EspMQTTClient.h
+{
+  client.subscribe("tiberius/temp", onTempMessageReceived);
+  client.subscribe("tiberius/humidity", onHumidityMessageReceived);
+  client.subscribe("tiberius/date", onDateMessageReceived);
+  client.subscribe("tiberius/pm25", onPM25MessageReceived);
+  client.subscribe("tiberius/noise", onNoiseMessageReceived);
+  client.subscribe("tiberius/moon", onMoonMessageReceived);
+}
+
+void scrollText(void)
+{
+  if (P.displayAnimate())
+  {
+    if (newMessageAvailable)
+    {
+      strcpy(curMessage, newMessage); //copy payload to curMessage to avoid duplicates
+      P.displayText(curMessage, PA_LEFT, scrollSpeed, scrollPause, PA_SCROLL_LEFT); //Doesn't display anything since curMessage is blank
+      newMessageAvailable = false;
+      newMessage[0] = '\0'; //clearing new message
+    }
+    P.displayReset();
+  }
+}
+
+void loop()
+{
+  client.loop();
+  scrollText();
+}
